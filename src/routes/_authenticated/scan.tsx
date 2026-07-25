@@ -41,12 +41,16 @@ function ScanPage() {
   function handleResult(text: string) {
     try {
       const url = new URL(text);
-      const m = url.pathname.match(/\/devices\/([^/?#]+)/);
-      if (m) { toast.success("QR scanned"); navigate({ to: "/devices/$id", params: { id: m[1] } }); return; }
+      const m = url.pathname.match(/\/(?:p|devices)\/([^/?#]+)/);
+      if (m) {
+        toast.success("QR scanned");
+        navigate({ to: "/p/$id", params: { id: m[1] } });
+        return;
+      }
     } catch {/* not a URL */}
-    if (/^[0-9a-f-]{30,}$/i.test(text)) {
+    if (/^[0-9a-f-]{30,}$/i.test(text) || /^DEV-\d{4}-[A-Z0-9]+$/i.test(text)) {
       toast.success("QR scanned");
-      navigate({ to: "/devices/$id", params: { id: text } });
+      navigate({ to: "/p/$id", params: { id: text } });
       return;
     }
     toast.error("Unrecognized QR code");

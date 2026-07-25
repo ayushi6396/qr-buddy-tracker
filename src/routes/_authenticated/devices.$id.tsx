@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { QRCodeDisplay } from "@/components/QRCodeDisplay";
 import { deviceUrl } from "@/lib/device-code";
 import { ArrowLeft, Save, ArrowRightLeft, Undo2 } from "lucide-react";
@@ -36,7 +35,15 @@ function DeviceDetails() {
   const { data: device, isLoading } = useQuery({
     queryKey: ["device", id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("devices").select("*").eq("id", id).maybeSingle();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase
+        .from("devices")
+        .select("*")
+        .eq("id", id)
+        .eq("created_by", user.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -51,7 +58,7 @@ function DeviceDetails() {
     },
   });
 
-  const activeIssue = history.find((h) => !h.return_date);
+  const activeIssue = history.find((h) => !h.return_date && h.status === "issued");
 
   const issueSchema = z.object({
     issued_to_name: z.string().trim().min(1, "Name required").max(120),
@@ -62,6 +69,11 @@ function DeviceDetails() {
 
   const issueMut = useMutation({
     mutationFn: async (form: FormData) => {
+      // Guard: prevent double-issue
+      if (device?.status === "issued" || activeIssue) {
+        throw new Error("This device is already issued. Return it first.");
+      }
+
       const parsed = issueSchema.safeParse({
         issued_to_name: form.get("issued_to_name"),
         issued_to_email: form.get("issued_to_email") || "",
@@ -82,6 +94,15 @@ function DeviceDetails() {
       if (histErr) throw histErr;
       const { error: devErr } = await supabase.from("devices").update({ status: "issued" }).eq("id", id);
       if (devErr) throw devErr;
+
+      // 3. Log Alert notification
+      const { error: alertErr } = await supabase.from("alerts").insert({
+        device_id: id,
+        event_type: "issued",
+        message: `Device ${device?.name || "Unknown"} (${device?.device_code}) was issued to ${parsed.data.issued_to_name} (by admin).`,
+        user_name: parsed.data.issued_to_name,
+      });
+      if (alertErr) console.error("Failed to log issue alert:", alertErr);
     },
     onSuccess: () => {
       toast.success("Device issued");
@@ -89,6 +110,7 @@ function DeviceDetails() {
       qc.invalidateQueries({ queryKey: ["device-history", id] });
       qc.invalidateQueries({ queryKey: ["devices"] });
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -101,6 +123,15 @@ function DeviceDetails() {
       if (hErr) throw hErr;
       const { error: dErr } = await supabase.from("devices").update({ status: "available" }).eq("id", id);
       if (dErr) throw dErr;
+
+      // 3. Log Alert notification
+      const { error: alertErr } = await supabase.from("alerts").insert({
+        device_id: id,
+        event_type: "returned",
+        message: `Device ${device?.name || "Unknown"} (${device?.device_code}) was returned (by admin).${returnNotes.trim() ? ` Note: "${returnNotes.trim()}"` : ""}`,
+        user_name: activeIssue.issued_to_name,
+      });
+      if (alertErr) console.error("Failed to log return alert:", alertErr);
     },
     onSuccess: () => {
       toast.success("Device returned");
@@ -108,6 +139,7 @@ function DeviceDetails() {
       qc.invalidateQueries({ queryKey: ["device-history", id] });
       qc.invalidateQueries({ queryKey: ["devices"] });
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -294,5 +326,3 @@ function Field({ label, name, type = "text", required, defaultValue }: { label: 
   );
 }
 
-// Unused select import guard
-void Select; void SelectContent; void SelectItem; void SelectTrigger; void SelectValue;

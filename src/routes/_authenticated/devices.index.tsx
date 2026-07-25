@@ -36,7 +36,14 @@ function DevicesList() {
   const { data: devices = [], isLoading } = useQuery({
     queryKey: ["devices"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("devices").select("*").order("created_at", { ascending: false });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase
+        .from("devices")
+        .select("*")
+        .eq("created_by", user.id)
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
     },

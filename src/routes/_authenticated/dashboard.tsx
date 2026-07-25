@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Boxes, CheckCircle2, ArrowRightLeft, Undo2, PlusCircle, ScanLine } from "lucide-react";
+import { Boxes, CheckCircle2, ArrowRightLeft, Undo2, PlusCircle, ScanLine, Bell, Activity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
@@ -15,18 +15,33 @@ function Dashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const [devices, history] = await Promise.all([
-        supabase.from("devices").select("id, status, device_type, created_at"),
-        supabase.from("device_history").select("id, status, return_date"),
+        supabase.from("devices").select("id, status, device_type, created_at").eq("created_by", user.id),
+        supabase.from("device_history").select("id, status, return_date, issued_to_name, issue_date, created_at, device_id").eq("created_by", user.id),
       ]);
       if (devices.error) throw devices.error;
       if (history.error) throw history.error;
-      return { devices: devices.data ?? [], history: history.data ?? [] };
+
+      // Only fetch alerts for devices owned by this admin
+      const deviceIds = devices.data?.map(d => d.id) || [];
+      const alertsRes = deviceIds.length > 0 
+        ? await supabase.from("alerts").select("*").in("device_id", deviceIds).order("created_at", { ascending: false }).limit(15)
+        : { data: [] };
+
+      return {
+        devices: devices.data ?? [],
+        history: history.data ?? [],
+        alerts: alertsRes.data ?? [],
+      };
     },
   });
 
   const devices = data?.devices ?? [];
   const history = data?.history ?? [];
+  const alerts = data?.alerts ?? [];
 
   const total = devices.length;
   const available = devices.filter((d) => d.status === "available").length;
@@ -59,7 +74,7 @@ function Dashboard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of your tracked devices.</p>
+          <p className="text-sm text-muted-foreground">Overview of your tracked assets and QR activity alerts.</p>
         </div>
         <div className="flex gap-2">
           <Button asChild><Link to="/devices/new"><PlusCircle className="h-4 w-4" /> Add device</Link></Button>
@@ -84,6 +99,81 @@ function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {/* Real-time Alerts & Activity Feed */}
+      <Card style={{ boxShadow: "var(--shadow-card)" }}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="h-4 w-4 text-amber-500" /> Recent Device Alerts & Activity
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {alerts.length === 0 && history.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic py-3 text-center">
+              No recent issue or return events logged.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {alerts.length > 0
+                ? alerts.map((alert) => (
+                    <div
+                      key={alert.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card/60 text-sm gap-2"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
+                            alert.event_type === "returned"
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                          }`}
+                        >
+                          {alert.event_type === "returned" ? (
+                            <Undo2 className="h-4 w-4" />
+                          ) : (
+                            <ArrowRightLeft className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{alert.message}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(alert.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      {alert.device_id && (
+                        <Button size="sm" variant="ghost" asChild>
+                          <Link to="/p/$id" params={{ id: alert.device_id }}>
+                            View QR Page
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  ))
+                : history.slice(0, 5).map((h) => (
+                    <div
+                      key={h.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card/60 text-sm gap-2"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                          <Activity className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">
+                            Device issued to {h.issued_to_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(h.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

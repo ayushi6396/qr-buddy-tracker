@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      alerts: {
+        Row: {
+          created_at: string
+          device_id: string | null
+          event_type: string
+          id: string
+          message: string
+          user_name: string | null
+        }
+        Insert: {
+          created_at?: string
+          device_id?: string | null
+          event_type: string
+          id?: string
+          message: string
+          user_name?: string | null
+        }
+        Update: {
+          created_at?: string
+          device_id?: string | null
+          event_type?: string
+          id?: string
+          message?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alerts_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_history: {
         Row: {
           created_at: string

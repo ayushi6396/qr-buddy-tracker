@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { QRCodeDisplay } from "@/components/QRCodeDisplay";
-import { generateDeviceCode, deviceUrl } from "@/lib/device-code";
+import { generateUniqueDeviceCode, deviceUrl } from "@/lib/device-code";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 
@@ -51,7 +51,7 @@ function AddDevice() {
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
 
     setLoading(true);
-    const code = generateDeviceCode();
+    const code = await generateUniqueDeviceCode();
     const { data: user } = await supabase.auth.getUser();
     const { data, error } = await supabase.from("devices").insert({
       device_code: code,
